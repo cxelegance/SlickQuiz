@@ -25,7 +25,14 @@
             randomSortAnswers: false,
             preventUnanswered: false,
             completionResponseMessaging: false,
-            disableResponseMessaging: false
+            disableResponseMessaging: false,
+            animationCallbacks: {
+                setup: function () {},
+                start: function () {},
+                checkSubmit: function () {},
+                back: function () {},
+                next: function () {},
+            }
         };
 
         // Reassign user-submitted deprecated options
@@ -122,7 +129,7 @@
 
         plugin.method = {
             // Sets up the questions and answers based on above array
-            setupQuiz: function(callback) {
+            setupQuiz: function(options) {
                 // create Deferred objects for callbacks plus callback functions
                 var df = internal.method.getDeferreds(3), // BE SURE that # of deferreds matches # of callbacks used in this method!
                 cb = internal.method.resolve1Deferred; // this is your callback function, it takes a "deferreds" as an argument
@@ -226,12 +233,12 @@
 
                 // handle the deferred objects for callbacks
                 internal.method.actDeferreds(df, function () { // ensure that each deferred has been resolved in the code above!
-                    callback ? callback () : function () {}; // assume callback is a function
+                    if (options && options.callback) options.callback (); // assume callback is a function
                 });
             },
 
             // Starts the quiz (hides start button and displays first question)
-            startQuiz: function(startButton, callback) {
+            startQuiz: function(startButton, options) {
                 // create Deferred objects for callbacks plus callback functions
                 var df = internal.method.getDeferreds(1), // BE SURE that # of deferreds matches # of callbacks used in this method!
                 cb = internal.method.resolve1Deferred; // this is your callback function, it takes a "deferreds" as an argument
@@ -244,12 +251,12 @@
                 });
                 // handle the deferred objects for callbacks
                 internal.method.actDeferreds(df, function () { // ensure that each deferred has been resolved in the code above!
-                    callback ? callback () : function () {}; // assume callback is a function
+                    if (options && options.callback) options.callback (); // assume callback is a function
                 });
             },
 
             // Validates the response selection(s), displays explanations & next question button
-            checkAnswer: function(checkButton, callback) {
+            checkAnswer: function(checkButton, options) {
                 var questionLI   = $($(checkButton).parents('li.question')[0]),
                     answerInputs = questionLI.find('input:checked'),
                     answers      = questions[parseInt(questionLI.attr('id').replace(/(question)/, ''))].a;
@@ -326,12 +333,12 @@
                 }
                 // handle the deferred objects for callbacks
                 internal.method.actDeferreds(df, function () { // ensure that each deferred has been resolved in the code above!
-                    callback ? callback () : function () {}; // assume callback is a function
+                    if (options && options.callback) options.callback (); // assume callback is a function
                 });
             },
 
             // Moves to the next question OR completes the quiz if on last question
-            nextQuestion: function(nextButton, callback) {
+            nextQuestion: function(nextButton, options) {
                 var currentQuestion = $($(nextButton).parents('li.question')[0]),
                     nextQuestion    = currentQuestion.next('.question'),
                     answerInputs    = currentQuestion.find('input:checked');
@@ -352,16 +359,16 @@
                         nextQuestion.find('.backToQuestion').show().end().fadeIn(500, cb(df)); // callback 1
                     });
                 } else {
-                    plugin.method.completeQuiz(cb(df)); // callback 1
+                    plugin.method.completeQuiz({callback: cb(df)}); // callback 1
                 }
                 // handle the deferred objects for callbacks
                 internal.method.actDeferreds(df, function () { // ensure that each deferred has been resolved in the code above!
-                    callback ? callback () : function () {}; // assume callback is a function
+                    if (options && options.callback) options.callback (); // assume callback is a function
                 });
             },
 
             // Go back to the last question
-            backToQuestion: function(backButton, callback) {
+            backToQuestion: function(backButton, options) {
                 var questionLI = $($(backButton).parents('li.question')[0]),
                     answers    = questionLI.find('.answers');
 
@@ -414,12 +421,12 @@
                 }
                 // handle the deferred objects for callbacks
                 internal.method.actDeferreds(df, function () { // ensure that each deferred has been resolved in the code above!
-                    callback ? callback () : function () {}; // assume callback is a function
+                    if (options && options.callback) options.callback (); // assume callback is a function
                 });
             },
 
             // Hides all questions, displays the final score and some conclusive information
-            completeQuiz: function(callback) {
+            completeQuiz: function(options) {
                 var score     = $('#' + selector + ' .correctResponse').length,
                     levelRank = plugin.method.calculateLevel(score),
                     levelText = levels[levelRank];
@@ -445,7 +452,7 @@
                 });
                 // handle the deferred objects for callbacks
                 internal.method.actDeferreds(df, function () { // ensure that each deferred has been resolved in the code above!
-                    callback ? callback () : function () {}; // assume callback is a function
+                    if (options && options.callback) options.callback (); // assume callback is a function
                 });
             },
 
@@ -498,40 +505,40 @@
 
         plugin.init = function() {
             // Setup quiz
-            plugin.method.setupQuiz(function() {
-                    //\console.log ('setup complete'); // TODO: turn this into a triggered event or a configured callback
-            });
+            plugin.method.setupQuiz({callback: function() {
+                    plugin.config.animationCallbacks.setup ();
+            }});
 
             // Bind "start" button
             $(triggers.starter).on('click', function(e) {
                 e.preventDefault();
-                plugin.method.startQuiz(this, function() {
-                    //\console.log ('start complete'); // TODO: turn this into a triggered event or a configured callback
-                });
+                plugin.method.startQuiz(this, {callback: function() {
+                    plugin.config.animationCallbacks.start ();
+                }});
             });
 
             // Bind "submit answer" button
             $(triggers.checker).on('click', function(e) {
                 e.preventDefault();
-                plugin.method.checkAnswer(this, function() {
-                    //\console.log ('check/submit complete'); // TODO: turn this into a triggered event or a configured callback
-                });
+                plugin.method.checkAnswer(this, {callback: function() {
+                    plugin.config.animationCallbacks.checkSubmit ();
+                }});
             });
 
             // Bind "back" button
             $(triggers.back).on('click', function(e) {
                 e.preventDefault();
-                plugin.method.backToQuestion(this, function() {
-                    //\console.log ('back complete'); // TODO: turn this into a triggered event or a configured callback
-                });
+                plugin.method.backToQuestion(this, {callback: function() {
+                    plugin.config.animationCallbacks.back ();
+                }});
             });
 
             // Bind "next question" button
             $(triggers.next).on('click', function(e) {
                 e.preventDefault();
-                plugin.method.nextQuestion(this, function() {
-                    //\console.log ('next complete'); // TODO: turn this into a triggered event or a configured callback
-                });
+                plugin.method.nextQuestion(this, {callback: function() {
+                    plugin.config.animationCallbacks.next ();
+                }});
             });
         };
 
