@@ -25,7 +25,14 @@
             randomSortAnswers: false,
             preventUnanswered: false,
             completionResponseMessaging: false,
-            disableResponseMessaging: false
+            disableResponseMessaging: false,
+            animationCallbacks: {
+                setup: function () {},
+                start: function () {},
+                checkSubmit: function () {},
+                back: function () {},
+                next: function () {}
+            }
         };
 
         // Reassign user-submitted deprecated options
@@ -86,11 +93,49 @@
         // Count the number of questions
         var questionCount = questions.length;
 
+        // some special private/internal methods, including those for handling deferred callbacks
+        var internal = {method: {
+                // get the required number of deferred objects wrapped in an totalDeferreds object
+                getTotalDeferreds: function(quantity) { // assuming good arguments
+                        var totalDeferreds = {total: quantity, counter: quantity};
+                        // e.g. totalDeferreds = { // quantity = 3
+                        //	total:		3, // this will hold its value
+                        //	counter:	3, // this will be used to count down
+                        //	'0':		$.Deferred(), // deferred objects have 'resolve' and 'promise' methods
+                        //	'1':		$.Deferred(),
+                        //	'2':		$.Deferred()
+                        // }
+                        for (i = 0; i < quantity; i++) totalDeferreds[i] = $.Deferred();
+                        return totalDeferreds;
+                },
+
+                // a totalDeferreds object contains many deferred objects; wait for all deferred objects to resolve and then take action
+                actTotalDeferreds: function(totalDeferreds, callback) { // assuming good arguments
+                        var stack = [];
+                        for (i = 0; i < totalDeferreds.total; i++) stack.push(totalDeferreds[i].promise()); //easy to process all the deferred promises as an array
+                        $.when.apply(null, stack).then(function () {
+                                callback();
+                        });
+                },
+
+                // build and return a callback function that will resolve one of the deferreds in totalDeferreds
+                resolve1Deferred: function(totalDeferreds) {
+                        var counter = --totalDeferreds.counter;
+                        return function() {
+                                totalDeferreds[counter].resolve();
+                        };
+                }
+        }};
+
         plugin.method = {
             // Sets up the questions and answers based on above array
-            setupQuiz: function() {
-                $(targets.quizName).hide().html(quizValues.info.name).fadeIn(1000);
-                $(targets.quizHeader).hide().prepend(quizValues.info.main).fadeIn(1000);
+            setupQuiz: function(options) {
+                // use jQ deferred objects as callbacks for animations
+                var tdf = internal.method.getTotalDeferreds(3), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gcb = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+
+                $(targets.quizName).hide().html(quizValues.info.name).fadeIn(1000, gcb(tdf)); // callback 1
+                $(targets.quizHeader).hide().prepend(quizValues.info.main).fadeIn(1000, gcb(tdf)); // callback 2
                 $(targets.quizResultsCopy).append(quizValues.info.results);
 
                 // Setup questions
@@ -184,24 +229,41 @@
                 $(targets.quizArea).append(quiz);
 
                 // Toggle the start button
-                $(triggers.starter).fadeIn(500);
+                $(triggers.starter).fadeIn(500, gcb(tdf)); // callback 3
+
+                // handle the deferred objects for callbacks
+                internal.method.actTotalDeferreds(tdf, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
+                });
             },
 
             // Starts the quiz (hides start button and displays first question)
-            startQuiz: function(startButton) {
+            startQuiz: function(startButton, options) {
+                // use jQ deferred objects as callbacks for animations
+                var tdf = internal.method.getTotalDeferreds(1), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gcb = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+                // start the quiz
                 $(startButton).fadeOut(300, function(){
                     var firstQuestion = $('#' + selector + ' .questions li').first();
                     if (firstQuestion.length) {
-                        firstQuestion.fadeIn(500);
-                    }
+                        firstQuestion.fadeIn(500, gcb(tdf)); // callback 1
+                    } else (gcb(tdf))(); // callback 1
+                });
+                // handle the deferred objects for callbacks
+                internal.method.actTotalDeferreds(tdf, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
                 });
             },
 
             // Validates the response selection(s), displays explanations & next question button
-            checkAnswer: function(checkButton) {
+            checkAnswer: function(checkButton, options) {
                 var questionLI   = $($(checkButton).parents('li.question')[0]),
                     answerInputs = questionLI.find('input:checked'),
                     answers      = questions[parseInt(questionLI.attr('id').replace(/(question)/, ''))].a;
+
+                // use jQ deferred objects as callbacks for animations
+                var tdf = internal.method.getTotalDeferreds(3), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gcb = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
 
                 // Collect the true answers needed for a correct response
                 var trueAnswers = [];
@@ -230,6 +292,9 @@
 
                 if (plugin.config.preventUnanswered && selectedAnswers.length === 0) {
                     alert('You must select at least one answer.');
+                    (gcb(tdf))(); // callback 1
+                    (gcb(tdf))(); // callback 2
+                    (gcb(tdf))(); // callback 3
                     return false;
                 }
 
@@ -248,44 +313,68 @@
                         questionLI.find('.responses').show();
 
                         $(checkButton).hide();
-                        questionLI.find('.nextQuestion').fadeIn(300);
-                        questionLI.find('.backToQuestion').fadeIn(300);
+                        questionLI.find('.nextQuestion').length ? questionLI.find('.nextQuestion').fadeIn(300, gcb(tdf)) : (gcb(tdf))(); // callback 1
+                        questionLI.find('.backToQuestion').length ? questionLI.find('.backToQuestion').fadeIn(300, gcb(tdf)) : (gcb(tdf))(); // callback 2
+                    } else {
+                        (gcb(tdf))(); // callback 1
+                        (gcb(tdf))(); // callback 2
                     }
 
                     // Toggle responses based on submission
                     if (correctResponse) {
-                        questionLI.find('.correct').fadeIn(300);
+                        questionLI.find('.correct').length ? questionLI.find('.correct').fadeIn(300, gcb(tdf)) : (gcb(tdf))(); // callback 3
                     } else {
-                        questionLI.find('.incorrect').fadeIn(300);
+                        questionLI.find('.incorrect').length ? questionLI.find('.incorrect').fadeIn(300, gcb(tdf)) : (gcb(tdf))(); // callback 3
                     }
+                } else {
+                        (gcb(tdf))(); // callback 1
+                        (gcb(tdf))(); // callback 2
+                        (gcb(tdf))(); // callback 3
                 }
+                // handle the deferred objects for callbacks
+                internal.method.actTotalDeferreds(tdf, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
+                });
             },
 
             // Moves to the next question OR completes the quiz if on last question
-            nextQuestion: function(nextButton) {
+            nextQuestion: function(nextButton, options) {
                 var currentQuestion = $($(nextButton).parents('li.question')[0]),
                     nextQuestion    = currentQuestion.next('.question'),
                     answerInputs    = currentQuestion.find('input:checked');
 
+                // use jQ deferred objects as callbacks for animations
+                var tdf = internal.method.getTotalDeferreds(1), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gcb = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+
                 // If response messaging has been disabled or moved to completion,
                 // make sure we have an answer if we require it, let checkAnswer handle the alert messaging
                 if (plugin.config.preventUnanswered && answerInputs.length === 0) {
+                    (gcb(tdf))();
                     return false;
                 }
 
                 if (nextQuestion.length) {
                     currentQuestion.fadeOut(300, function(){
-                        nextQuestion.find('.backToQuestion').show().end().fadeIn(500);
+                        nextQuestion.find('.backToQuestion').show().end().fadeIn(500, gcb(tdf)); // callback 1
                     });
                 } else {
-                    plugin.method.completeQuiz();
+                    plugin.method.completeQuiz({callback: gcb(tdf)}); // callback 1
                 }
+                // handle the deferred objects for callbacks
+                internal.method.actTotalDeferreds(tdf, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
+                });
             },
 
             // Go back to the last question
-            backToQuestion: function(backButton) {
+            backToQuestion: function(backButton, options) {
                 var questionLI = $($(backButton).parents('li.question')[0]),
                     answers    = questionLI.find('.answers');
+
+                // use jQ deferred objects as callbacks for animations
+                var tdf = internal.method.getTotalDeferreds(2), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gcb = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
 
                 // Back to previous question
                 if (answers.css('display') === 'block' ) {
@@ -309,7 +398,8 @@
                             prevQuestion.find('.backToQuestion').hide();
                         }
 
-                        prevQuestion.fadeIn(500);
+                        prevQuestion.fadeIn(500, gcb(tdf)); // callback 1
+                        (gcb(tdf))(); // callback 2
                     });
 
                 // Back to question from responses
@@ -317,8 +407,8 @@
                     questionLI.find('.responses').fadeOut(300, function(){
                         questionLI.removeClass('correctResponse');
                         questionLI.find('.responses li').hide();
-                        answers.fadeIn(500);
-                        questionLI.find('.checkAnswer').fadeIn(500);
+                        answers.fadeIn(500, gcb(tdf)); // callback 1
+                        questionLI.find('.checkAnswer').fadeIn(500, gcb(tdf)); // callback 2
                         questionLI.find('.nextQuestion').hide();
 
                         // if question is first, don't show back button on question
@@ -329,13 +419,21 @@
                         }
                     });
                 }
+                // handle the deferred objects for callbacks
+                internal.method.actTotalDeferreds(tdf, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
+                });
             },
 
             // Hides all questions, displays the final score and some conclusive information
-            completeQuiz: function() {
+            completeQuiz: function(options) {
                 var score     = $('#' + selector + ' .correctResponse').length,
                     levelRank = plugin.method.calculateLevel(score),
                     levelText = levels[levelRank];
+
+                // use jQ deferred objects as callbacks for animations
+                var tdf = internal.method.getTotalDeferreds(1), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gcb = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
 
                 $(targets.quizScore + ' span').html(score + ' / ' + questionCount);
                 $(targets.quizLevel + ' span').html(levelText);
@@ -347,10 +445,14 @@
                         $('#' + selector + ' .questions input').prop('disabled', true);
                         $('#' + selector + ' .questions .button, #' + selector + ' .questions .questionCount').hide();
                         $('#' + selector + ' .questions .question, #' + selector + ' .questions .responses').show();
-                        $(targets.quizResults).append($('#' + selector + ' .questions')).fadeIn(500);
+                        $(targets.quizResults).append($('#' + selector + ' .questions')).fadeIn(500, gcb(tdf)); // callback 1
                     } else {
-                        $(targets.quizResults).fadeIn(500);
+                        $(targets.quizResults).fadeIn(500, gcb(tdf)); // callback 1
                     }
+                });
+                // handle the deferred objects for callbacks
+                internal.method.actTotalDeferreds(tdf, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
                 });
             },
 
@@ -403,30 +505,40 @@
 
         plugin.init = function() {
             // Setup quiz
-            plugin.method.setupQuiz();
+            plugin.method.setupQuiz({callback: function() {
+                    plugin.config.animationCallbacks.setup ();
+            }});
 
             // Bind "start" button
             $(triggers.starter).on('click', function(e) {
                 e.preventDefault();
-                plugin.method.startQuiz(this);
+                plugin.method.startQuiz(this, {callback: function() {
+                    plugin.config.animationCallbacks.start ();
+                }});
             });
 
             // Bind "submit answer" button
             $(triggers.checker).on('click', function(e) {
                 e.preventDefault();
-                plugin.method.checkAnswer(this);
+                plugin.method.checkAnswer(this, {callback: function() {
+                    plugin.config.animationCallbacks.checkSubmit ();
+                }});
             });
 
             // Bind "back" button
             $(triggers.back).on('click', function(e) {
                 e.preventDefault();
-                plugin.method.backToQuestion(this);
+                plugin.method.backToQuestion(this, {callback: function() {
+                    plugin.config.animationCallbacks.back ();
+                }});
             });
 
             // Bind "next question" button
             $(triggers.next).on('click', function(e) {
                 e.preventDefault();
-                plugin.method.nextQuestion(this);
+                plugin.method.nextQuestion(this, {callback: function() {
+                    plugin.config.animationCallbacks.next ();
+                }});
             });
         };
 
