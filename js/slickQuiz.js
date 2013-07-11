@@ -31,7 +31,7 @@
                 start: function () {},
                 checkSubmit: function () {},
                 back: function () {},
-                next: function () {},
+                next: function () {}
             }
         };
 
