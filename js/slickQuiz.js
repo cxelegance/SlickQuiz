@@ -480,7 +480,7 @@
             backToQuestion: function(backButton, options) {
             	var tD, totalDeferreds, gC, getCallback;
             	// use jQ deferred objects as callbacks for animations
-                tD = totalDeferreds = internal.method.getTotalDeferreds(1), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                tD = totalDeferreds = internal.method.getTotalDeferreds(2), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
                 gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
                 
                 var questionLI = $($(backButton).parents(_question)[0]),
@@ -640,7 +640,7 @@
             // Bind "next" buttons
             $(_element + ' ' + _nextQuestionBtn).on('click', function(e) {
                 e.preventDefault();
-                plugin.method.nextQuestion(this, {callback: plugin.config.callbacks.animations.resetQuiz});
+                plugin.method.nextQuestion(this, {callback: plugin.config.callbacks.animations.nextQuestion});
             });
         };
 
