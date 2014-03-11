@@ -1,0 +1,686 @@
+/*!
+ * SlickQuiz jQuery Plugin
+ * http://github.com/jewlofthelotus/SlickQuiz
+ *
+ * @updated February 16, 2014
+ * @version 1.5.14
+ *
+ * @author Julie Cameron - http://www.juliecameron.com
+ * @copyright (c) 2013 Quicken Loans - http://www.quickenloans.com
+ * @license MIT
+ */
+
+(function($){
+    $.slickQuiz = function(element, options) {
+        var plugin   = this,
+            $element = $(element),
+            _element = '#' + $element.attr('id'),
+
+            defaults = {
+                checkAnswerText:  'Check My Answer!',
+                nextQuestionText: 'Next &raquo;',
+                backButtonText: '',
+                tryAgainText: '',
+                skipStartButton: false,
+                numberOfQuestions: null,
+                randomSortQuestions: false,
+                randomSortAnswers: false,
+                preventUnanswered: false,
+                perQuestionResponseMessaging: true,
+                completionResponseMessaging: false,
+                callbacks: {
+	                animations: { // only for the methods that have jQuery animations offering callback
+	                	setupQuiz: function () {}, // i.e. execute a function when animations in this method are complete
+	                	startQuiz: function () {},
+	                	resetQuiz: function () {}, // plugin.config.callbacks.animations.resetQuiz()
+	                	checkAnswer: function () {},
+	                	nextQuestion: function () {},
+	                	backToQuestion: function () {},
+	                	completeQuiz: function () {}
+	                }
+                }
+            },
+
+            // Class Name Strings (Used for building quiz and for selectors)
+            questionCountClass     = 'questionCount',
+            questionGroupClass     = 'questions',
+            questionClass          = 'question',
+            answersClass           = 'answers',
+            responsesClass         = 'responses',
+            correctClass           = 'correctResponse',
+            correctResponseClass   = 'correct',
+            incorrectResponseClass = 'incorrect',
+            checkAnswerClass       = 'checkAnswer',
+            nextQuestionClass      = 'nextQuestion',
+            backToQuestionClass    = 'backToQuestion',
+            tryAgainClass          = 'tryAgain',
+
+            // Sub-Quiz / Sub-Question Class Selectors
+            _questionCount         = '.' + questionCountClass,
+            _questions             = '.' + questionGroupClass,
+            _question              = '.' + questionClass,
+            _answers               = '.' + answersClass,
+            _responses             = '.' + responsesClass,
+            _correct               = '.' + correctClass,
+            _correctResponse       = '.' + correctResponseClass,
+            _incorrectResponse     = '.' + incorrectResponseClass,
+            _checkAnswerBtn        = '.' + checkAnswerClass,
+            _nextQuestionBtn       = '.' + nextQuestionClass,
+            _prevQuestionBtn       = '.' + backToQuestionClass,
+            _tryAgainBtn           = '.' + tryAgainClass,
+
+            // Top Level Quiz Element Class Selectors
+            _quizStarter           = _element + ' .startQuiz',
+            _quizName              = _element + ' .quizName',
+            _quizArea              = _element + ' .quizArea',
+            _quizResults           = _element + ' .quizResults',
+            _quizResultsCopy       = _element + ' .quizResultsCopy',
+            _quizHeader            = _element + ' .quizHeader',
+            _quizScore             = _element + ' .quizScore',
+            _quizLevel             = _element + ' .quizLevel',
+
+            // Top Level Quiz Element Objects
+            $quizStarter           = $(_quizStarter),
+            $quizName              = $(_quizName),
+            $quizArea              = $(_quizArea),
+            $quizResults           = $(_quizResults),
+            $quizResultsCopy       = $(_quizResultsCopy),
+            $quizHeader            = $(_quizHeader),
+            $quizScore             = $(_quizScore),
+            $quizLevel             = $(_quizLevel)
+        ;
+
+
+        // Reassign user-submitted deprecated options
+        var depMsg = '';
+
+        if (options && typeof options.disableNext != 'undefined') {
+            if (typeof options.preventUnanswered == 'undefined') {
+                options.preventUnanswered = options.disableNext;
+            }
+            depMsg += 'The \'disableNext\' option has been deprecated, please use \'preventUnanswered\' in it\'s place.\n\n';
+        }
+
+        if (options && typeof options.disableResponseMessaging != 'undefined') {
+            if (typeof options.preventUnanswered == 'undefined') {
+                options.perQuestionResponseMessaging = options.disableResponseMessaging;
+            }
+            depMsg += 'The \'disableResponseMessaging\' option has been deprecated, please use' +
+                      ' \'perQuestionResponseMessaging\' and \'completionResponseMessaging\' in it\'s place.\n\n';
+        }
+
+        if (options && typeof options.randomSort != 'undefined') {
+            if (typeof options.randomSortQuestions == 'undefined') {
+                options.randomSortQuestions = options.randomSort;
+            }
+            if (typeof options.randomSortAnswers == 'undefined') {
+                options.randomSortAnswers = options.randomSort;
+            }
+            depMsg += 'The \'randomSort\' option has been deprecated, please use' +
+                      ' \'randomSortQuestions\' and \'randomSortAnswers\' in it\'s place.\n\n';
+        }
+
+        if (depMsg !== '') {
+            if (typeof console != 'undefined') {
+                console.warn(depMsg);
+            } else {
+                alert(depMsg);
+            }
+        }
+        // End of deprecation reassignment
+
+
+        plugin.config = $.extend(defaults, options);
+
+        // Set via json option or quizJSON variable (see slickQuiz-config.js)
+        var quizValues = (plugin.config.json ? plugin.config.json : typeof quizJSON != 'undefined' ? quizJSON : null);
+
+        // Get questions, possibly sorted randomly
+        var questions = plugin.config.randomSortQuestions ?
+                        quizValues.questions.sort(function() { return (Math.round(Math.random())-0.5); }) :
+                        quizValues.questions;
+
+        // Count the number of questions
+        var questionCount = questions.length;
+
+        // Select X number of questions to load if options is set
+        if (plugin.config.numberOfQuestions && questionCount >= plugin.config.numberOfQuestions) {
+            questions = questions.slice(0, plugin.config.numberOfQuestions);
+            questionCount = questions.length;
+        }
+        
+        // some special private/internal methods
+        var internal = {method: {
+                // get the required number of deferred objects wrapped in an totalDeferreds object
+                getTotalDeferreds: function(quantity) { // assuming good arguments
+                        var i, totalDeferreds = {total: quantity, counter: quantity};
+                        // e.g. totalDeferreds = { // quantity = 3
+                        //	total:		3, // this will hold its value
+                        //	counter:	3, // this will be used to count down
+                        //	'0':		$.Deferred(), // deferred objects have 'resolve' and 'promise' methods
+                        //	'1':		$.Deferred(),
+                        //	'2':		$.Deferred()
+                        // }
+                        for (i = 0; i < quantity; i++) totalDeferreds[i] = $.Deferred();
+                        return totalDeferreds;
+                },
+                
+                getKey: function () { // returns []
+                	return []; // yup the key is an empty array
+                },
+
+                // a totalDeferreds object contains many deferred objects; wait for all deferred objects to resolve and then take action
+                actTotalDeferreds: function(totalDeferreds, callback) { // assuming good arguments
+                        var i, stack = [];
+                        for (i = 0; i < totalDeferreds.total; i++) stack.push(totalDeferreds[i].promise()); //easy to process all the deferred promises as an array
+                        $.when.apply(null, stack).then(function () {
+                                callback();
+                        });
+                },
+                
+                turnKeyAndGo: function (key, go) { // key = [], go = function ()
+                	// when all the notches of the key are accepted (resolved) then the key turns and the engine (callback/go) goes
+                	$.when.apply (null, key). then (function () {
+                		go ();
+                	});
+                },
+
+                // build and return a callback function that will resolve one of the deferreds in totalDeferreds
+                resolve1Deferred: function(totalDeferreds, dummy) {
+                		dummy = null; // dummy is solely for developer to keep track/count of animations/deferreds within a method
+                        var counter = --totalDeferreds.counter;
+                        return function() {
+                                totalDeferreds[counter].resolve();
+                        };
+                },
+                
+                getKeyNotch: function (key, notch) { // notch >= 1, key = []
+                	// key has several notches, numbered as 1, 2, 3, ... (no zero notch)
+                	// we put a jQ deferred on each notch
+                	if (!key[notch-1]) {
+                		key[notch-1] = $.Deferred ();
+                	} 
+                	return function () {
+                		key[notch-1].resolve ();
+                	};
+                }
+        }};
+
+        plugin.method = {
+            // Sets up the questions and answers based on above array
+            setupQuiz: function(options) { // use 'options' object to pass args
+            	var tD, totalDeferreds, gC, getCallback;
+            	// use jQ deferred objects as callbacks for animations
+            	var key;
+                tD = totalDeferreds = internal.method.getTotalDeferreds(3), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+                key = internal.method.getKey ();
+                gC = internal.method.getKeyNotch;
+                
+                $quizName.hide().html(quizValues.info.name).fadeIn(1000, gC(key,1));
+                $quizHeader.hide().prepend($('<div class="quizDescription">' + quizValues.info.main + '</div>')).fadeIn(1000, gC(key,2));
+                $quizResultsCopy.append(quizValues.info.results);
+
+                // add retry button to results view, if enabled
+                if (plugin.config.tryAgainText && plugin.config.tryAgainText !== '') {
+                    $quizResultsCopy.append('<p><a class="button ' + tryAgainClass + '" href="#">' + plugin.config.tryAgainText + '</a></p>');
+                }
+
+                // Setup questions
+                var quiz  = $('<ol class="' + questionGroupClass + '"></ol>'),
+                    count = 1;
+
+                // Loop through questions object
+                for (i in questions) {
+                    if (questions.hasOwnProperty(i)) {
+                        var question = questions[i];
+
+                        var questionHTML = $('<li class="' + questionClass +'" id="question' + (count - 1) + '"></li>');
+                        questionHTML.append('<div class="' + questionCountClass + '">Question <span class="current">' + count + '</span> of <span class="total">' + questionCount + '</span></div>');
+                        questionHTML.append('<h3>' + count + '. ' + question.q + '</h3>');
+
+                        // Count the number of true values
+                        var truths = 0;
+                        for (i in question.a) {
+                            if (question.a.hasOwnProperty(i)) {
+                                answer = question.a[i];
+                                if (answer.correct) {
+                                    truths++;
+                                }
+                            }
+                        }
+
+                        // Now let's append the answers with checkboxes or radios depending on truth count
+                        var answerHTML = $('<ul class="' + answersClass + '"></ul>');
+
+                        // Get the answers
+                        var answers = plugin.config.randomSortAnswers ?
+                            question.a.sort(function() { return (Math.round(Math.random())-0.5); }) :
+                            question.a;
+
+                        // prepare a name for the answer inputs based on the question
+                        var selectAny  = question.select_any ? question.select_any : false,
+                            inputName  = 'question' + (count - 1),
+                            inputType  = (truths > 1 && !selectAny ? 'checkbox' : 'radio');
+
+                        for (i in answers) {
+                            if (answers.hasOwnProperty(i)) {
+                                answer   = answers[i],
+                                optionId = inputName + '_' + i.toString();
+
+                                // If question has >1 true answers and is not a select any, use checkboxes; otherwise, radios
+                                var input = '<input id="' + optionId + '" name="' + inputName +
+                                            '" type="' + inputType + '" /> ';
+
+                                var optionLabel = '<label for="' + optionId + '">' + answer.option + '</label>';
+
+                                var answerContent = $('<li></li>')
+                                    .append(input)
+                                    .append(optionLabel);
+                                answerHTML.append(answerContent);
+                            }
+                        }
+
+                        // Append answers to question
+                        questionHTML.append(answerHTML);
+
+                        // If response messaging is NOT disabled, add it
+                        if (plugin.config.perQuestionResponseMessaging || plugin.config.completionResponseMessaging) {
+                            // Now let's append the correct / incorrect response messages
+                            var responseHTML = $('<ul class="' + responsesClass + '"></ul>');
+                            responseHTML.append('<li class="' + correctResponseClass + '">' + question.correct + '</li>');
+                            responseHTML.append('<li class="' + incorrectResponseClass + '">' + question.incorrect + '</li>');
+
+                            // Append responses to question
+                            questionHTML.append(responseHTML);
+                        }
+
+                        // Appends check answer / back / next question buttons
+                        if (plugin.config.backButtonText && plugin.config.backButtonText !== '') {
+                            questionHTML.append('<a href="#" class="button ' + backToQuestionClass + '">' + plugin.config.backButtonText + '</a>');
+                        }
+
+                        // If we're not showing responses per question, show next question button and make it check the answer too
+                        if (!plugin.config.perQuestionResponseMessaging) {
+                            questionHTML.append('<a href="#" class="button ' + nextQuestionClass + ' ' + checkAnswerClass + '">' + plugin.config.nextQuestionText + '</a>');
+                        } else {
+                            questionHTML.append('<a href="#" class="button ' + nextQuestionClass + '">' + plugin.config.nextQuestionText + '</a>');
+                            questionHTML.append('<a href="#" class="button ' + checkAnswerClass + '">' + plugin.config.checkAnswerText + '</a>');
+                        }
+
+                        // Append question & answers to quiz
+                        quiz.append(questionHTML);
+
+                        count++;
+                    }
+                }
+
+                // Add the quiz content to the page
+                $quizArea.append(quiz);
+
+                // Toggle the start button OR start the quiz if start button is disabled
+                if (plugin.config.skipStartButton || $quizStarter.length == 0) {
+                    $quizStarter.hide();
+                    plugin.method.startQuiz.apply (this, [{callback: plugin.config.callbacks.animations.startQuiz}]); // TODO: determine why 'this' is being passed as arg to startQuiz method
+                    gC(key,3).apply (null, []); // because else clause has an animation, we need to complete the deferred
+                } else {
+                    $quizStarter.fadeIn(500, gC(key,3));
+                }
+                /*
+                // handle the deferred objects for animation callbacks
+                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
+                });
+                */
+                if (options && options.callback) internal.method.turnKeyAndGo(key, options.callback);
+            },
+
+            // Starts the quiz (hides start button and displays first question)
+            startQuiz: function(options) {
+            	var tD, totalDeferreds, gC, getCallback;
+            	// use jQ deferred objects as callbacks for animations
+                tD = totalDeferreds = internal.method.getTotalDeferreds(1), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+                
+                function start(options) {
+                    var firstQuestion = $(_element + ' ' + _questions + ' li').first();
+                    if (firstQuestion.length) {
+                        firstQuestion.fadeIn(500, function () {
+                        	if (options && options.callback) options.callback ();
+                        });
+                    }
+                }
+
+                if (plugin.config.skipStartButton || $quizStarter.length == 0) {
+                    start({callback: gC(tD,1)});
+                } else {
+                    $quizStarter.fadeOut(300, function(){
+                        start({callback: gC(tD,1)});
+                    });
+                }
+                
+                // handle the deferred objects for animation callbacks
+                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
+                });
+            },
+
+            // Resets (restarts) the quiz (hides results, resets inputs, and displays first question)
+            resetQuiz: function(startButton, options) {
+            	var tD, totalDeferreds, gC, getCallback;
+            	// use jQ deferred objects as callbacks for animations
+                tD = totalDeferreds = internal.method.getTotalDeferreds(1), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+                
+                $quizResults.fadeOut(300, function() {
+                    $(_element + ' input').prop('checked', false).prop('disabled', false);
+
+                    $quizLevel.attr('class', 'quizLevel');
+                    $(_element + ' ' + _correct).removeClass(correctClass);
+
+                    $(_element + ' ' + _question          + ',' +
+                      _element + ' ' + _responses         + ',' +
+                      _element + ' ' + _correctResponse   + ',' +
+                      _element + ' ' + _incorrectResponse + ',' +
+                      _element + ' ' + _nextQuestionBtn   + ',' +
+                      _element + ' ' + _prevQuestionBtn
+                    ).hide();
+
+                    $(_element + ' ' + _questionCount + ',' +
+                      _element + ' ' + _answers + ',' +
+                      _element + ' ' + _checkAnswerBtn
+                    ).show();
+
+                    $quizArea.append($(_element + ' ' + _questions)).show();
+                    
+                    gC(tD,1).apply (null, []);
+
+                    plugin.method.startQuiz({callback: plugin.config.callbacks.animations.startQuiz},$quizResults); // TODO: determine why $quizResults is being passed
+                });
+                
+                // handle the deferred objects for animation callbacks
+                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
+                });
+            },
+
+            // Validates the response selection(s), displays explanations & next question button
+            checkAnswer: function(checkButton, options) {
+            	var tD, totalDeferreds, gC, getCallback;
+            	// use jQ deferred objects as callbacks for animations
+                tD = totalDeferreds = internal.method.getTotalDeferreds(2), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+                
+                var questionLI    = $($(checkButton).parents(_question)[0]),
+                    answerInputs  = questionLI.find('input:checked'),
+                    questionIndex = parseInt(questionLI.attr('id').replace(/(question)/, ''), 10),
+                    answers       = questions[questionIndex].a,
+                    selectAny     = questions[questionIndex].select_any ? questions[questionIndex].select_any : false;
+
+                // Collect the true answers needed for a correct response
+                var trueAnswers = [];
+                for (i in answers) {
+                    if (answers.hasOwnProperty(i)) {
+                        var answer = answers[i];
+
+                        if (answer.correct) {
+                            trueAnswers.push($('<div />').html(answer.option).text());
+                        }
+                    }
+                }
+
+                // NOTE: Collecting .text() for comparison aims to ensure that HTML entities
+                // and HTML elements that may be modified by the browser match up
+
+                // Collect the answers submitted
+                var selectedAnswers = [];
+                answerInputs.each( function() {
+                    var inputValue = $(this).next('label').text();
+                    selectedAnswers.push(inputValue);
+                });
+
+                if (plugin.config.preventUnanswered && selectedAnswers.length === 0) {
+                    alert('You must select at least one answer.');
+                    return false;
+                }
+
+                // Verify all/any true answers (and no false ones) were submitted
+                var correctResponse = plugin.method.compareAnswers(trueAnswers, selectedAnswers, selectAny);
+
+                if (correctResponse) {
+                    questionLI.addClass(correctClass);
+                }
+
+                // Toggle appropriate response (either for display now and / or on completion)
+                questionLI.find(correctResponse ? _correctResponse : _incorrectResponse).show();
+
+                // If perQuestionResponseMessaging is enabled, toggle response and navigation now
+                if (plugin.config.perQuestionResponseMessaging) {
+                    $(checkButton).hide();
+                    questionLI.find(_answers).hide();
+                    questionLI.find(_responses).show();
+                    questionLI.find(_nextQuestionBtn).fadeIn(300, gC(tD,1));
+                    questionLI.find(_prevQuestionBtn).fadeIn(300, gC(tD,2));
+                } else {
+                	gC(tD,1).apply (null, []); // because if clause has an animation, we need to complete the deferred
+                	gC(tD,2).apply (null, []);
+                }
+                
+                // handle the deferred objects for animation callbacks
+                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
+                });
+            },
+
+            // Moves to the next question OR completes the quiz if on last question
+            nextQuestion: function(nextButton, options) {
+            	var tD, totalDeferreds, gC, getCallback;
+            	// use jQ deferred objects as callbacks for animations
+                tD = totalDeferreds = internal.method.getTotalDeferreds(1), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+                
+                var currentQuestion = $($(nextButton).parents(_question)[0]),
+                    nextQuestion    = currentQuestion.next(_question),
+                    answerInputs    = currentQuestion.find('input:checked');
+
+                // If response messaging has been disabled or moved to completion,
+                // make sure we have an answer if we require it, let checkAnswer handle the alert messaging
+                if (plugin.config.preventUnanswered && answerInputs.length === 0) {
+                    return false;
+                }
+
+                if (nextQuestion.length) {
+                    currentQuestion.fadeOut(300, function(){
+                        nextQuestion.find(_prevQuestionBtn).show().end().fadeIn(500, gC(tD,1));
+                    });
+                } else {
+                	gC(tD,2).apply (null, []); // because if clause has an animation, we need to complete the deferred
+                    plugin.method.completeQuiz({callback: plugin.config.callbacks.animations.completeQuiz});
+                }
+                
+                // handle the deferred objects for animation callbacks
+                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
+                });
+            },
+
+            // Go back to the last question
+            backToQuestion: function(backButton, options) {
+            	var tD, totalDeferreds, gC, getCallback;
+            	// use jQ deferred objects as callbacks for animations
+                tD = totalDeferreds = internal.method.getTotalDeferreds(2), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+                
+                var questionLI = $($(backButton).parents(_question)[0]),
+                    answers    = questionLI.find(_answers);
+
+                // Back to previous question
+                if (answers.css('display') === 'block' ) {
+                    var prevQuestion = questionLI.prev(_question);
+
+                    questionLI.fadeOut(300, function() {
+                        prevQuestion.removeClass(correctClass);
+                        prevQuestion.find(_responses + ', ' + _responses + ' li').hide();
+                        prevQuestion.find(_answers).show();
+                        prevQuestion.find(_checkAnswerBtn).show();
+
+                        if (prevQuestion.attr('id') != 'question0') {
+                            prevQuestion.find(_prevQuestionBtn).show();
+                        } else {
+                            prevQuestion.find(_prevQuestionBtn).hide();
+                        }
+
+                        prevQuestion.fadeIn(500, gC(tD,1));
+                        gC(tD,2).apply (null, []); // because else clause has an animation, we need to complete the deferred
+                    });
+
+                // Back to question from responses
+                } else {
+                    questionLI.find(_responses).fadeOut(300, function(){
+                        questionLI.removeClass(correctClass);
+                        questionLI.find(_responses + ' li').hide();
+                        answers.fadeIn(500, gC(tD,1));
+                        questionLI.find(_checkAnswerBtn).fadeIn(500, gC(tD,2));
+                        questionLI.find(_nextQuestionBtn).hide();
+
+                        // if question is first, don't show back button on question
+                        if (questionLI.attr('id') != 'question0') {
+                            questionLI.find(_prevQuestionBtn).show();
+                        } else {
+                            questionLI.find(_prevQuestionBtn).hide();
+                        }
+                    });
+                }
+                
+                // handle the deferred objects for animation callbacks
+                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
+                });
+            },
+
+            // Hides all questions, displays the final score and some conclusive information
+            completeQuiz: function(options) {
+            	var tD, totalDeferreds, gC, getCallback;
+            	// use jQ deferred objects as callbacks for animations
+                tD = totalDeferreds = internal.method.getTotalDeferreds(1), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
+                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+                
+                var levels    = [
+                                    quizValues.info.level1, // 80-100%
+                                    quizValues.info.level2, // 60-79%
+                                    quizValues.info.level3, // 40-59%
+                                    quizValues.info.level4, // 20-39%
+                                    quizValues.info.level5  // 0-19%
+                                ],
+                    score     = $(_element + ' ' + _correct).length,
+                    levelRank = plugin.method.calculateLevel(score),
+                    levelText = $.isNumeric(levelRank) ? levels[levelRank] : '';
+
+                $(_quizScore + ' span').html(score + ' / ' + questionCount);
+                $(_quizLevel + ' span').html(levelText);
+                $(_quizLevel).addClass('level' + levelRank);
+
+                $quizArea.fadeOut(300, function() {
+                    // If response messaging is set to show upon quiz completion, show it now
+                    if (plugin.config.completionResponseMessaging) {
+                        $(_element + ' input').prop('disabled', true);
+                        $(_element + ' .button:not(' + _tryAgainBtn + '), ' + _element + ' ' + _questionCount).hide();
+                        $(_element + ' ' + _question + ', ' + _element + ' ' + _answers + ', ' + _element + ' ' + _responses).show();
+                        $quizResults.append($(_element + ' ' + _questions)).fadeIn(500, gC(tD,1));
+                    } else {
+                        $quizResults.fadeIn(500, gC(tD,1));
+                    }
+                });
+                
+                // handle the deferred objects for animation callbacks
+                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
+                    if (options && options.callback) options.callback (); // assume callback is a function
+                });
+            },
+
+            // Compares selected responses with true answers, returns true if they match exactly
+            compareAnswers: function(trueAnswers, selectedAnswers, selectAny) {
+                if ( selectAny ) {
+                    return $.inArray(selectedAnswers[0], trueAnswers) > -1;
+                } else {
+                    // crafty array comparison (http://stackoverflow.com/a/7726509)
+                    return ($(trueAnswers).not(selectedAnswers).length === 0 && $(selectedAnswers).not(trueAnswers).length === 0);
+                }
+            },
+
+            // Calculates knowledge level based on number of correct answers
+            calculateLevel: function(correctAnswers) {
+                var percent = (correctAnswers / questionCount).toFixed(2),
+                    level   = null;
+
+                if (plugin.method.inRange(0, 0.20, percent)) {
+                    level = 4;
+                } else if (plugin.method.inRange(0.21, 0.40, percent)) {
+                    level = 3;
+                } else if (plugin.method.inRange(0.41, 0.60, percent)) {
+                    level = 2;
+                } else if (plugin.method.inRange(0.61, 0.80, percent)) {
+                    level = 1;
+                } else if (plugin.method.inRange(0.81, 1.00, percent)) {
+                    level = 0;
+                }
+
+                return level;
+            },
+
+            // Determines if percentage of correct values is within a level range
+            inRange: function(start, end, value) {
+                return (value >= start && value <= end);
+            }
+        };
+
+        plugin.init = function() {
+            // Setup quiz
+            plugin.method.setupQuiz.apply (null, [{callback: plugin.config.callbacks.animations.setupQuiz}]);
+
+            // Bind "start" button
+            $quizStarter.on('click', function(e) {
+                e.preventDefault();
+
+                if (!this.disabled && !$(this).hasClass('disabled')) {
+                    plugin.method.startQuiz.apply (null, [{callback: plugin.config.callbacks.animations.startQuiz}]);
+                }
+            });
+
+            // Bind "try again" button
+            $(_element + ' ' + _tryAgainBtn).on('click', function(e) {
+                e.preventDefault();
+                plugin.method.resetQuiz(this, {callback: plugin.config.callbacks.animations.resetQuiz});
+            });
+
+            // Bind "check answer" buttons
+            $(_element + ' ' + _checkAnswerBtn).on('click', function(e) {
+                e.preventDefault();
+                plugin.method.checkAnswer(this, {callback: plugin.config.callbacks.animations.checkAnswer});
+            });
+
+            // Bind "back" buttons
+            $(_element + ' ' + _prevQuestionBtn).on('click', function(e) {
+                e.preventDefault();
+                plugin.method.backToQuestion(this, {callback: plugin.config.callbacks.animations.backToQuestion});
+            });
+
+            // Bind "next" buttons
+            $(_element + ' ' + _nextQuestionBtn).on('click', function(e) {
+                e.preventDefault();
+                plugin.method.nextQuestion(this, {callback: plugin.config.callbacks.animations.nextQuestion});
+            });
+        };
+
+        plugin.init();
+    };
+
+    $.fn.slickQuiz = function(options) {
+        return this.each(function() {
+            if (undefined === $(this).data('slickQuiz')) {
+                var plugin = new $.slickQuiz(this, options);
+                $(this).data('slickQuiz', plugin);
+            }
+        });
+    };
+})(jQuery);
