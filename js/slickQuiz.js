@@ -151,57 +151,29 @@
         
         // some special private/internal methods
         var internal = {method: {
-                // get the required number of deferred objects wrapped in an totalDeferreds object
-                getTotalDeferreds: function(quantity) { // assuming good arguments
-                        var i, totalDeferreds = {total: quantity, counter: quantity};
-                        // e.g. totalDeferreds = { // quantity = 3
-                        //	total:		3, // this will hold its value
-                        //	counter:	3, // this will be used to count down
-                        //	'0':		$.Deferred(), // deferred objects have 'resolve' and 'promise' methods
-                        //	'1':		$.Deferred(),
-                        //	'2':		$.Deferred()
-                        // }
-                        for (i = 0; i < quantity; i++) totalDeferreds[i] = $.Deferred();
-                        return totalDeferreds;
+                       
+                // get a key whose notches are "resolved jQ deferred" objects; one per notch on the key
+                // think of the key as a house key with notches on it
+                getKey: function (notches) { // returns [], notches >= 1
+                	var key = [];
+                	for (i=0; i<notches; i++) key[i] = $.Deferred ();
+                	return key;
                 },
                 
-                getKey: function () { // returns []
-                	return []; // yup the key is an empty array
-                },
-
-                // a totalDeferreds object contains many deferred objects; wait for all deferred objects to resolve and then take action
-                actTotalDeferreds: function(totalDeferreds, callback) { // assuming good arguments
-                        var i, stack = [];
-                        for (i = 0; i < totalDeferreds.total; i++) stack.push(totalDeferreds[i].promise()); //easy to process all the deferred promises as an array
-                        $.when.apply(null, stack).then(function () {
-                                callback();
-                        });
-                },
-                
+                // put the key in the door, if all the notches pass then you can turn the key and "go"
                 turnKeyAndGo: function (key, go) { // key = [], go = function ()
-                	// when all the notches of the key are accepted (resolved) then the key turns and the engine (callback/go) goes
+                	// when all the notches of the key are accepted (resolved) then the key turns and the engine (callback/go) starts
                 	$.when.apply (null, key). then (function () {
                 		go ();
                 	});
                 },
-
-                // build and return a callback function that will resolve one of the deferreds in totalDeferreds
-                resolve1Deferred: function(totalDeferreds, dummy) {
-                		dummy = null; // dummy is solely for developer to keep track/count of animations/deferreds within a method
-                        var counter = --totalDeferreds.counter;
-                        return function() {
-                                totalDeferreds[counter].resolve();
-                        };
-                },
                 
+                // get one jQ 
                 getKeyNotch: function (key, notch) { // notch >= 1, key = []
                 	// key has several notches, numbered as 1, 2, 3, ... (no zero notch)
-                	// we put a jQ deferred on each notch
-                	if (!key[notch-1]) {
-                		key[notch-1] = $.Deferred ();
-                	} 
+                	// we resolve and return the "jQ deferred" object at specified notch
                 	return function () {
-                		key[notch-1].resolve ();
+                		key[notch-1].resolve (); // it is ASSUMED that you initiated the key with enough notches
                 	};
                 }
         }};
@@ -209,16 +181,13 @@
         plugin.method = {
             // Sets up the questions and answers based on above array
             setupQuiz: function(options) { // use 'options' object to pass args
-            	var tD, totalDeferreds, gC, getCallback;
-            	// use jQ deferred objects as callbacks for animations
-            	var key;
-                tD = totalDeferreds = internal.method.getTotalDeferreds(3), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
-                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
-                key = internal.method.getKey ();
-                gC = internal.method.getKeyNotch;
+            	var key, keyNotch, kN;
+                key = internal.method.getKey (3); // how many notches == how many jQ animations you will run
+                keyNotch = internal.method.getKeyNotch; // a function that returns a jQ animation callback function
+                kN = keyNotch; // you specify the notch, you get a callback function for your animation
                 
-                $quizName.hide().html(quizValues.info.name).fadeIn(1000, gC(key,1));
-                $quizHeader.hide().prepend($('<div class="quizDescription">' + quizValues.info.main + '</div>')).fadeIn(1000, gC(key,2));
+                $quizName.hide().html(quizValues.info.name).fadeIn(1000, kN(key,1));
+                $quizHeader.hide().prepend($('<div class="quizDescription">' + quizValues.info.main + '</div>')).fadeIn(1000, kN(key,2));
                 $quizResultsCopy.append(quizValues.info.results);
 
                 // add retry button to results view, if enabled
@@ -322,25 +291,20 @@
                 if (plugin.config.skipStartButton || $quizStarter.length == 0) {
                     $quizStarter.hide();
                     plugin.method.startQuiz.apply (this, [{callback: plugin.config.callbacks.animations.startQuiz}]); // TODO: determine why 'this' is being passed as arg to startQuiz method
-                    gC(key,3).apply (null, []); // because else clause has an animation, we need to complete the deferred
+                    kN(key,3).apply (null, []);
                 } else {
-                    $quizStarter.fadeIn(500, gC(key,3));
+                    $quizStarter.fadeIn(500, kN(key,3)); // 3d notch on key must be on both sides of if/else, otherwise key won't turn
                 }
-                /*
-                // handle the deferred objects for animation callbacks
-                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
-                    if (options && options.callback) options.callback (); // assume callback is a function
-                });
-                */
-                if (options && options.callback) internal.method.turnKeyAndGo(key, options.callback);
+
+                internal.method.turnKeyAndGo (key, options && options.callback ? options.callback : function () {});
             },
 
             // Starts the quiz (hides start button and displays first question)
             startQuiz: function(options) {
-            	var tD, totalDeferreds, gC, getCallback;
-            	// use jQ deferred objects as callbacks for animations
-                tD = totalDeferreds = internal.method.getTotalDeferreds(1), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
-                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+            	var key, keyNotch, kN;
+            	key = internal.method.getKey (1); // how many notches == how many jQ animations you will run
+            	keyNotch = internal.method.getKeyNotch; // a function that returns a jQ animation callback function
+            	kN = keyNotch; // you specify the notch, you get a callback function for your animation
                 
                 function start(options) {
                     var firstQuestion = $(_element + ' ' + _questions + ' li').first();
@@ -352,25 +316,22 @@
                 }
 
                 if (plugin.config.skipStartButton || $quizStarter.length == 0) {
-                    start({callback: gC(tD,1)});
+                    start({callback: kN(key,1)});
                 } else {
                     $quizStarter.fadeOut(300, function(){
-                        start({callback: gC(tD,1)});
+                        start({callback: kN(key,1)}); // 1st notch on key must be on both sides of if/else, otherwise key won't turn
                     });
                 }
                 
-                // handle the deferred objects for animation callbacks
-                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
-                    if (options && options.callback) options.callback (); // assume callback is a function
-                });
+                internal.method.turnKeyAndGo (key, options && options.callback ? options.callback : function () {});
             },
 
             // Resets (restarts) the quiz (hides results, resets inputs, and displays first question)
             resetQuiz: function(startButton, options) {
-            	var tD, totalDeferreds, gC, getCallback;
-            	// use jQ deferred objects as callbacks for animations
-                tD = totalDeferreds = internal.method.getTotalDeferreds(1), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
-                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+            	var key, keyNotch, kN;
+            	key = internal.method.getKey (1); // how many notches == how many jQ animations you will run
+            	keyNotch = internal.method.getKeyNotch; // a function that returns a jQ animation callback function
+            	kN = keyNotch; // you specify the notch, you get a callback function for your animation
                 
                 $quizResults.fadeOut(300, function() {
                     $(_element + ' input').prop('checked', false).prop('disabled', false);
@@ -393,23 +354,20 @@
 
                     $quizArea.append($(_element + ' ' + _questions)).show();
                     
-                    gC(tD,1).apply (null, []);
+                    kN(key,1).apply (null, []);
 
                     plugin.method.startQuiz({callback: plugin.config.callbacks.animations.startQuiz},$quizResults); // TODO: determine why $quizResults is being passed
                 });
                 
-                // handle the deferred objects for animation callbacks
-                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
-                    if (options && options.callback) options.callback (); // assume callback is a function
-                });
+                internal.method.turnKeyAndGo (key, options && options.callback ? options.callback : function () {});
             },
 
             // Validates the response selection(s), displays explanations & next question button
             checkAnswer: function(checkButton, options) {
-            	var tD, totalDeferreds, gC, getCallback;
-            	// use jQ deferred objects as callbacks for animations
-                tD = totalDeferreds = internal.method.getTotalDeferreds(2), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
-                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+            	var key, keyNotch, kN;
+            	key = internal.method.getKey (2); // how many notches == how many jQ animations you will run
+            	keyNotch = internal.method.getKeyNotch; // a function that returns a jQ animation callback function
+            	kN = keyNotch; // you specify the notch, you get a callback function for your animation
                 
                 var questionLI    = $($(checkButton).parents(_question)[0]),
                     answerInputs  = questionLI.find('input:checked'),
@@ -459,25 +417,22 @@
                     $(checkButton).hide();
                     questionLI.find(_answers).hide();
                     questionLI.find(_responses).show();
-                    questionLI.find(_nextQuestionBtn).fadeIn(300, gC(tD,1));
-                    questionLI.find(_prevQuestionBtn).fadeIn(300, gC(tD,2));
+                    questionLI.find(_nextQuestionBtn).fadeIn(300, kN(key,1));
+                    questionLI.find(_prevQuestionBtn).fadeIn(300, kN(key,2));
                 } else {
-                	gC(tD,1).apply (null, []); // because if clause has an animation, we need to complete the deferred
-                	gC(tD,2).apply (null, []);
+                	kN(key,1).apply (null, []); // 1st notch on key must be on both sides of if/else, otherwise key won't turn
+                	kN(key,2).apply (null, []); // 2nd notch on key must be on both sides of if/else, otherwise key won't turn
                 }
                 
-                // handle the deferred objects for animation callbacks
-                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
-                    if (options && options.callback) options.callback (); // assume callback is a function
-                });
+                internal.method.turnKeyAndGo (key, options && options.callback ? options.callback : function () {});
             },
 
             // Moves to the next question OR completes the quiz if on last question
             nextQuestion: function(nextButton, options) {
-            	var tD, totalDeferreds, gC, getCallback;
-            	// use jQ deferred objects as callbacks for animations
-                tD = totalDeferreds = internal.method.getTotalDeferreds(1), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
-                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+            	var key, keyNotch, kN;
+            	key = internal.method.getKey (1); // how many notches == how many jQ animations you will run
+            	keyNotch = internal.method.getKeyNotch; // a function that returns a jQ animation callback function
+            	kN = keyNotch; // you specify the notch, you get a callback function for your animation
                 
                 var currentQuestion = $($(nextButton).parents(_question)[0]),
                     nextQuestion    = currentQuestion.next(_question),
@@ -491,25 +446,22 @@
 
                 if (nextQuestion.length) {
                     currentQuestion.fadeOut(300, function(){
-                        nextQuestion.find(_prevQuestionBtn).show().end().fadeIn(500, gC(tD,1));
+                        nextQuestion.find(_prevQuestionBtn).show().end().fadeIn(500, kN(key,1));
                     });
                 } else {
-                	gC(tD,2).apply (null, []); // because if clause has an animation, we need to complete the deferred
+                	kN(key,1).apply (null, []); // 1st notch on key must be on both sides of if/else, otherwise key won't turn
                     plugin.method.completeQuiz({callback: plugin.config.callbacks.animations.completeQuiz});
                 }
                 
-                // handle the deferred objects for animation callbacks
-                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
-                    if (options && options.callback) options.callback (); // assume callback is a function
-                });
+                internal.method.turnKeyAndGo (key, options && options.callback ? options.callback : function () {});
             },
 
             // Go back to the last question
             backToQuestion: function(backButton, options) {
-            	var tD, totalDeferreds, gC, getCallback;
-            	// use jQ deferred objects as callbacks for animations
-                tD = totalDeferreds = internal.method.getTotalDeferreds(2), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
-                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+            	var key, keyNotch, kN;
+            	key = internal.method.getKey (2); // how many notches == how many jQ animations you will run
+            	keyNotch = internal.method.getKeyNotch; // a function that returns a jQ animation callback function
+            	kN = keyNotch; // you specify the notch, you get a callback function for your animation
                 
                 var questionLI = $($(backButton).parents(_question)[0]),
                     answers    = questionLI.find(_answers);
@@ -530,8 +482,8 @@
                             prevQuestion.find(_prevQuestionBtn).hide();
                         }
 
-                        prevQuestion.fadeIn(500, gC(tD,1));
-                        gC(tD,2).apply (null, []); // because else clause has an animation, we need to complete the deferred
+                        prevQuestion.fadeIn(500, kN(key,1));
+                        kN(key,2).apply (null, []); // 2nd notch on key must be on both sides of if/else, otherwise key won't turn
                     });
 
                 // Back to question from responses
@@ -539,8 +491,8 @@
                     questionLI.find(_responses).fadeOut(300, function(){
                         questionLI.removeClass(correctClass);
                         questionLI.find(_responses + ' li').hide();
-                        answers.fadeIn(500, gC(tD,1));
-                        questionLI.find(_checkAnswerBtn).fadeIn(500, gC(tD,2));
+                        answers.fadeIn(500, kN(key,1)); // 1st notch on key must be on both sides of if/else, otherwise key won't turn
+                        questionLI.find(_checkAnswerBtn).fadeIn(500, kN(key,2));
                         questionLI.find(_nextQuestionBtn).hide();
 
                         // if question is first, don't show back button on question
@@ -552,18 +504,15 @@
                     });
                 }
                 
-                // handle the deferred objects for animation callbacks
-                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
-                    if (options && options.callback) options.callback (); // assume callback is a function
-                });
+                internal.method.turnKeyAndGo (key, options && options.callback ? options.callback : function () {});
             },
 
             // Hides all questions, displays the final score and some conclusive information
             completeQuiz: function(options) {
-            	var tD, totalDeferreds, gC, getCallback;
-            	// use jQ deferred objects as callbacks for animations
-                tD = totalDeferreds = internal.method.getTotalDeferreds(1), // BE SURE that # of deferreds matches # of animation callbacks required in this method!
-                gC = getCallback = internal.method.resolve1Deferred; // this is your Get Callback function, it takes totalDeferreds as input and gives you an animation callback function
+            	var key, keyNotch, kN;
+            	key = internal.method.getKey (1); // how many notches == how many jQ animations you will run
+            	keyNotch = internal.method.getKeyNotch; // a function that returns a jQ animation callback function
+            	kN = keyNotch; // you specify the notch, you get a callback function for your animation
                 
                 var levels    = [
                                     quizValues.info.level1, // 80-100%
@@ -586,16 +535,13 @@
                         $(_element + ' input').prop('disabled', true);
                         $(_element + ' .button:not(' + _tryAgainBtn + '), ' + _element + ' ' + _questionCount).hide();
                         $(_element + ' ' + _question + ', ' + _element + ' ' + _answers + ', ' + _element + ' ' + _responses).show();
-                        $quizResults.append($(_element + ' ' + _questions)).fadeIn(500, gC(tD,1));
+                        $quizResults.append($(_element + ' ' + _questions)).fadeIn(500, kN(key,1));
                     } else {
-                        $quizResults.fadeIn(500, gC(tD,1));
+                        $quizResults.fadeIn(500, kN(key,1)); // 1st notch on key must be on both sides of if/else, otherwise key won't turn
                     }
                 });
                 
-                // handle the deferred objects for animation callbacks
-                internal.method.actTotalDeferreds(tD, function () { // ensure that each deferred has been resolved in the code above!
-                    if (options && options.callback) options.callback (); // assume callback is a function
-                });
+                internal.method.turnKeyAndGo (key, options && options.callback ? options.callback : function () {});
             },
 
             // Compares selected responses with true answers, returns true if they match exactly
