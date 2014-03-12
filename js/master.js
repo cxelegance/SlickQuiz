@@ -11,6 +11,15 @@ $(function () {
             	nextQuestion: function () {console.log ('nextQuestion complete');},
             	backToQuestion: function () {console.log ('backToQuestion complete');},
             	completeQuiz: function () {console.log ('completeQuiz complete');}
+			},
+			events: {
+				completeQuiz: function (options) {
+					console.log ('quiz completed with:' +
+							(options && options.questionCount ? options.questionCount : 'null') +
+									' & ' +
+									(options && options.score ? options.score : 'null')
+							);
+				}
 			}
 		},
     	backButtonText: 'back',
